@@ -11,6 +11,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
   const [segmentWeather, setSegmentWeather] = useState([]);
   const [segmentTraffic, setSegmentTraffic] = useState([]);
   const [aiRisks, setAiRisks] = useState([]);
+  const SAMPLE_STRIDE = 20;
 
   // Fetch road geometry via OSRM between src and dest
   useEffect(() => {
@@ -40,7 +41,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
     const fetchTraffic = async () => {
       try {
         const points = [];
-        for (let i = 0; i < route.length; i += 50) points.push(route[i]);
+        for (let i = 0; i < route.length; i += SAMPLE_STRIDE) points.push(route[i]);
 
         // Probe with first point — if TomTom unavailable, skip all remaining calls
         const probe = await axios.get(
@@ -89,7 +90,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
     const fetchSegmentWeather = async () => {
       try {
         const points = [];
-        for (let i = 0; i < route.length; i += 50) points.push(route[i]);
+        for (let i = 0; i < route.length; i += SAMPLE_STRIDE) points.push(route[i]);
 
         const responses = await Promise.all(
           points.map(([lat, lon]) =>
@@ -143,6 +144,40 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
       if (dist < minDist) { minDist = dist; closest = w; }
     });
     return closest;
+  }
+
+  function scoreLocalRisk(segment) {
+    const [lat, lng] = segment[0];
+    const traffic = getNearestTraffic(lat, lng);
+    const weather = getNearestWeather(lat, lng);
+    const reasons = [];
+    let color = "green";
+
+    if (traffic) {
+      const speedRatio = traffic.freeFlowSpeed ? traffic.currentSpeed / traffic.freeFlowSpeed : 1;
+      const delayRatio = traffic.freeTime ? traffic.currentTime / traffic.freeTime : 1;
+
+      if (speedRatio <= 0.45 || delayRatio >= 1.8) {
+        color = "red";
+        reasons.push("Heavy congestion detected");
+      } else if (speedRatio <= 0.75 || delayRatio >= 1.2) {
+        color = "#eab308";
+        reasons.push("Traffic is slowing this segment");
+      } else {
+        reasons.push("Traffic is flowing normally");
+      }
+    }
+
+    if (weather?.condition && String(weather.condition).toLowerCase().includes("rain")) {
+      reasons.push("Rain may slow vehicles");
+      if (color === "green") color = "#eab308";
+    }
+
+    if (typeof weather?.temp === "number" && weather.temp >= 34) {
+      reasons.push("High temperature may add delay");
+    }
+
+    return { color, reasons: reasons.length ? reasons : ["Low risk route segment"], nearestWeather: weather };
   }
 
   useEffect(() => {
@@ -215,14 +250,15 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
     const hour = now.getHours();
     const minutes = now.getMinutes();
 
-  const [lat, lng] = segment[0];
+    const [lat, lng] = segment[0];
+    const traffic = getNearestTraffic(lat, lng);
+    const weather = getNearestWeather(lat, lng);
 
-  const traffic = getNearestTraffic(lat, lng);
-  const weather = getNearestWeather(lat, lng);
+    const fallback = scoreLocalRisk(segment);
 
-  if (!weather) {
-    return { color: "green", reasons: ["No data"], nearestWeather: null };
-  }
+    if (!weather) {
+      return fallback;
+    }
 
   try {
     const res = await axios.post("http://localhost:5001/ai-risk", {
@@ -238,18 +274,12 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
     });
 
     const ai = res.data;
+    const finalReasons = Array.isArray(ai.reasons) && ai.reasons.length ? ai.reasons : fallback.reasons;
 
-    if (ai.risk === "High") {
-      return { color: "red", reasons: ai.reasons?.length ? ai.reasons : ["High risk detected"], nearestWeather: weather };
-    }
-    if (ai.risk === "Medium") {
-      return { color: "#eab308", reasons: ai.reasons?.length ? ai.reasons : ["Moderate risk detected"], nearestWeather: weather };
-    }
-
-    return { color: "green", reasons: ai.reasons?.length ? ai.reasons : ["Low risk expected"], nearestWeather: weather };
+    return { color: fallback.color, reasons: finalReasons, nearestWeather: weather };
   }catch (err) {
     console.error("AI ERROR FRONTEND:", err);
-      return { color: "green", reasons: ["AI failed"], nearestWeather: weather };
+      return fallback;
     }
 }
 
@@ -265,10 +295,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
     <>
       {route.length > 0 &&
         createSegments(route).map((segment, i) => {
-          const result = aiRisks[i] || {
-  color: "green",
-  reasons: ["Analyzing..."],
-};
+          const result = aiRisks[i] || scoreLocalRisk(segment);
           return (
             <Polyline
               key={`risk-${routeCoords?.vehicleId || "v"}-${i}`}
