@@ -23,6 +23,15 @@ app.use("/", vehicleRoutes); // /update-location, /vehicle-locations, /driver/:i
 app.use("/", routeRoutes);   // /optimize-route, /simulate-disruption, /smart-reroute
 app.use("/", aiRoutes);      // /ai-risk, /list-models
 
+
+app.use(corsMiddleware);
+app.options("*", corsPreFlight);
+
+// TEMP DEBUG - remove after fixing
+app.get("/debug-cors", (req, res) => {
+  res.json({ ALLOWED_ORIGINS: require("../config").ALLOWED_ORIGINS });
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
