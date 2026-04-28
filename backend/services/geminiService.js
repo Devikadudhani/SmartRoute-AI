@@ -56,6 +56,11 @@ Valid risk values: Low, Medium, High`;
  * Returns a full parsed AI response object.
  */
 async function analyzeTrafficRisk(traffic, weather, time) {
+  const delayRatio = Number(traffic?.delayRatio);
+  const speedRatio = traffic?.currentSpeed && traffic?.freeFlowSpeed
+    ? traffic.currentSpeed / traffic.freeFlowSpeed
+    : null;
+
   const prompt = `
 Analyze traffic risk:
 
@@ -82,7 +87,49 @@ Return STRICT JSON:
     const cleaned = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleaned);
   } catch {
-    return { risk: "Low", reasons: ["AI unavailable"] };
+    const reasons = [];
+    let riskScore = 0;
+
+    if (delayRatio !== null && !Number.isNaN(delayRatio)) {
+      if (delayRatio >= 1.8) {
+        riskScore += 2;
+        reasons.push("Heavy traffic delay detected");
+      } else if (delayRatio >= 1.3) {
+        riskScore += 1;
+        reasons.push("Traffic is moving slower than normal");
+      }
+    }
+
+    if (speedRatio !== null && !Number.isNaN(speedRatio)) {
+      if (speedRatio < 0.4) {
+        riskScore += 2;
+      } else if (speedRatio < 0.7) {
+        riskScore += 1;
+      }
+    }
+
+    if (typeof weather?.temp === "number" && weather.temp >= 34) {
+      riskScore += 1;
+      reasons.push("High temperature may increase driving fatigue");
+    }
+
+    if (typeof weather?.temp === "number" && weather.temp <= 8) {
+      riskScore += 1;
+      reasons.push("Cold conditions may slow travel");
+    }
+
+    if (String(weather?.condition || "").toLowerCase().includes("rain")) {
+      riskScore += 2;
+      reasons.push("Rain may reduce road speed and visibility");
+    }
+
+    if (reasons.length === 0) {
+      reasons.push("Traffic and weather look stable");
+    }
+
+    if (riskScore >= 3) return { risk: "High", reasons };
+    if (riskScore >= 1) return { risk: "Medium", reasons };
+    return { risk: "Low", reasons };
   }
 }
 

@@ -146,23 +146,21 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
   }
 
   useEffect(() => {
-  const generateRisks = async () => {
-  if (!route.length) return;
+    const generateRisks = async () => {
+      if (!route.length) return;
 
-  const segments = createSegments(route);
+      const segments = createSegments(route);
+      if (segments.length === 0) {
+        setAiRisks([]);
+        return;
+      }
 
-  // const limitedSegments = segments.slice(0, 2); // 🔥 LIMIT
+      const results = await Promise.all(segments.map((segment) => getRisk(segment)));
+      setAiRisks(results);
+    };
 
-  // const results = [];
-
-  const res = await getRisk(segments[0]); // only first segment
-  setAiRisks(new Array(segments.length).fill(res));
-
-  // setAiRisks(results);
-};
-
-  generateRisks();
-}, [route, segmentWeather, segmentTraffic]);
+    generateRisks();
+  }, [route, segmentWeather, segmentTraffic]);
 
   // function getRisk(segment) {
   //   const [lat, lng] = segment[0];
@@ -223,7 +221,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
   const weather = getNearestWeather(lat, lng);
 
   if (!weather) {
-    return { color: "green", reasons: ["No data"] };
+    return { color: "green", reasons: ["No data"], nearestWeather: null };
   }
 
   try {
@@ -242,13 +240,13 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
     const ai = res.data;
 
     if (ai.risk === "High") {
-      return { color: "red", reasons: ai.reasons, nearestWeather: weather };
+      return { color: "red", reasons: ai.reasons?.length ? ai.reasons : ["High risk detected"], nearestWeather: weather };
     }
     if (ai.risk === "Medium") {
-      return { color: "#eab308", reasons: ai.reasons, nearestWeather: weather };
+      return { color: "#eab308", reasons: ai.reasons?.length ? ai.reasons : ["Moderate risk detected"], nearestWeather: weather };
     }
 
-    return { color: "green", reasons: ai.reasons, nearestWeather: weather };
+    return { color: "green", reasons: ai.reasons?.length ? ai.reasons : ["Low risk expected"], nearestWeather: weather };
   }catch (err) {
     console.error("AI ERROR FRONTEND:", err);
       return { color: "green", reasons: ["AI failed"], nearestWeather: weather };
@@ -275,20 +273,62 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
             <Polyline
               key={`risk-${routeCoords?.vehicleId || "v"}-${i}`}
               positions={segment}
-              pathOptions={{ color: result.color, weight: 7, opacity: 0.9 }}
+              pathOptions={{ color: result.color, weight: 7, opacity: 0.9, interactive: true }}
               eventHandlers={{
                 mouseover: (e) => {
-                  if (!onHoverChange) return;
-                  const weather = getNearestWeather(e.latlng.lat, e.latlng.lng);
-                  onHoverChange({
-                    color: result.color,
-                    reasons: Array.isArray(result.reasons) && result.reasons.length
-  ? result.reasons
-  : ["No sufficient data"],
-                    weather,
-                    vehicleColor,
-                    vehicleNumber,
-                  });
+                    if (!onHoverChange) return;
+                    const weather = getNearestWeather(e.latlng.lat, e.latlng.lng);
+
+                    const doHover = async (w) => {
+                      // If the precomputed result has no reasons and we now have a live weather sample,
+                      // re-query the AI endpoint for more accurate reasons specific to this hover point.
+                      let reasons = Array.isArray(result.reasons) && result.reasons.length ? result.reasons : ["No sufficient data"];
+                      if (reasons.length === 1 && (reasons[0] === "No data" || reasons[0] === "No sufficient data") && w) {
+                        try {
+                          const now = new Date();
+                          const res = await axios.post("http://localhost:5001/ai-risk", {
+                            traffic: (getNearestTraffic(e.latlng.lat, e.latlng.lng))
+                              ? {
+                                  currentSpeed: getNearestTraffic(e.latlng.lat, e.latlng.lng).currentSpeed,
+                                  freeFlowSpeed: getNearestTraffic(e.latlng.lat, e.latlng.lng).freeFlowSpeed,
+                                  delayRatio: getNearestTraffic(e.latlng.lat, e.latlng.lng).currentTime / getNearestTraffic(e.latlng.lat, e.latlng.lng).freeTime,
+                                }
+                              : null,
+                            weather: w,
+                            time: `${now.getHours()}:${now.getMinutes()}`,
+                          });
+                          const ai = res.data;
+                          reasons = Array.isArray(ai.reasons) && ai.reasons.length ? ai.reasons : reasons;
+                        } catch (err) {
+                          // ignore and keep fallback reasons
+                        }
+                      }
+
+                      onHoverChange({
+                        color: result.color,
+                        reasons,
+                        weather: w,
+                        vehicleColor,
+                        vehicleNumber,
+                      });
+                    };
+
+                    // If we don't have sampled weather, try fetching current weather for the hovered point
+                    if (!weather && import.meta.env.VITE_WEATHER_API_KEY) {
+                      (async () => {
+                        try {
+                          const r = await axios.get(
+                            `https://api.openweathermap.org/data/2.5/weather?lat=${e.latlng.lat}&lon=${e.latlng.lng}&appid=${import.meta.env.VITE_WEATHER_API_KEY}&units=metric`
+                          );
+                          const w = { temp: r.data.main.temp, condition: r.data.weather[0].main };
+                          doHover(w);
+                        } catch (err) {
+                          doHover(null);
+                        }
+                      })();
+                    } else {
+                      doHover(weather);
+                    }
                 },
                 mouseout: () => onHoverChange && onHoverChange(null),
               }}

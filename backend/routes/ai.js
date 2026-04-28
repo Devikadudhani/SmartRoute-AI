@@ -8,7 +8,6 @@ const router = express.Router();
  * Analyzes traffic risk using Gemini AI given traffic, weather, and time context.
  */
 router.post("/ai-risk", async (req, res) => {
-  console.log("🔥 AI ROUTE HIT");
   const { traffic, weather, time } = req.body;
 
   try {

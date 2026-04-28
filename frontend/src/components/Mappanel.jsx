@@ -63,7 +63,7 @@ export default function MapPanel({
             </p>
             <p>🌡️ Temp: {routeHoverInfo.weather?.temp !== undefined ? `${routeHoverInfo.weather.temp}°C` : "Unavailable"}</p>
             <ul style={{ paddingLeft: 16, margin: "4px 0" }}>
-              {routeHoverInfo.reasons.map((r, i) => <li key={i}>{r}</li>)}
+              {(Array.isArray(routeHoverInfo.reasons) && routeHoverInfo.reasons.length ? routeHoverInfo.reasons : ["No data"]).map((r, i) => <li key={i}>{r}</li>)}
             </ul>
             <p style={{ fontWeight: 600, marginTop: 6 }}>
               {routeHoverInfo.color === "red" && "❌ Avoid this route"}
@@ -76,17 +76,6 @@ export default function MapPanel({
         <MapContainer className="leaflet-map" center={[28.6139, 77.209]} zoom={12} preferCanvas>
           <TileLayer url={tileConfig.url} attribution={tileConfig.attribution} />
           <FitMapBounds routeStates={routeStates} fitToken={fitToken} />
-
-          {/* Risk analysis overlays */}
-          {allRouteCoords.map((entry) => (
-            <MapView
-              key={`analysis-${entry.vehicleId}`}
-              routeCoords={entry}
-              vehicleColor={vehicleColorMap[entry.vehicleId]}
-              vehicleNumber={entry.vehicleNumber}
-              onHoverChange={setRouteHoverInfo}
-            />
-          ))}
 
           {/* Warehouse / origin markers */}
           {vehicles.map((vehicle, idx) => {
@@ -136,6 +125,17 @@ export default function MapPanel({
               </div>
             );
           })}
+
+          {/* Risk analysis overlays */}
+          {allRouteCoords.map((entry) => (
+            <MapView
+              key={`analysis-${entry.vehicleId}`}
+              routeCoords={entry}
+              vehicleColor={vehicleColorMap[entry.vehicleId]}
+              vehicleNumber={entry.vehicleNumber}
+              onHoverChange={setRouteHoverInfo}
+            />
+          ))}
 
           {/* Vehicle position markers */}
           {vehicles.map((vehicle) => {
