@@ -23,7 +23,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
       try {
         const { src, dest } = routeCoords;
         const res = await axios.get(
-          `https://router.project-osrm.org/route/v1/driving/${src[1]},${src[0]};${dest[1]},${dest[0]}?overview=full&geometries=geojson`
+          api(`/road-geometry?coords=${encodeURIComponent(`${src[1]},${src[0]};${dest[1]},${dest[0]}`)}`)
         );
         const coords = res.data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
         setRoute(coords);
@@ -314,7 +314,7 @@ function MapView({ routeCoords, vehicleColor, vehicleNumber, onHoverChange }) {
                       if (reasons.length === 1 && (reasons[0] === "No data" || reasons[0] === "No sufficient data") && w) {
                         try {
                           const now = new Date();
-                          const res = await axios.post("http://localhost:5001/ai-risk", {
+                          const res = await axios.post(api("/ai-risk"), {
                             traffic: (getNearestTraffic(e.latlng.lat, e.latlng.lng))
                               ? {
                                   currentSpeed: getNearestTraffic(e.latlng.lat, e.latlng.lng).currentSpeed,

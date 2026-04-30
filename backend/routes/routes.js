@@ -226,4 +226,22 @@ router.post("/smart-reroute", async (req, res) => {
   }
 });
 
+/**
+ * GET /road-geometry?coords=lng1,lat1;lng2,lat2;...
+ * Proxies OSRM route geometry — avoids CORS errors when called from the browser.
+ */
+router.get("/road-geometry", async (req, res) => {
+  const { coords } = req.query;
+  if (!coords) return res.status(400).json({ error: "coords query param required" });
+
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+    const osrmRes = await axios.get(url, { timeout: 10000 });
+    res.json(osrmRes.data);
+  } catch (err) {
+    console.error("OSRM proxy error:", err.message);
+    res.status(502).json({ error: "OSRM request failed", details: err.message });
+  }
+});
+
 module.exports = router;

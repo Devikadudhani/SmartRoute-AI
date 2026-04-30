@@ -83,12 +83,13 @@ export const calcStopETAs = (vehicleId, roadPath, orderedStopIds, vehicleStops, 
 };
 
 // ─── API Helpers ─────────────────────────────────────────────────────────────
+import { api } from "../config";
+
 export const fetchRoadGeometry = async (orderedStops) => {
   if (!orderedStops || orderedStops.length < 2) return [];
   const coords = orderedStops.map((s) => `${s.lng},${s.lat}`).join(";");
-  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("OSRM request failed");
+  const response = await fetch(api(`/road-geometry?coords=${encodeURIComponent(coords)}`));
+  if (!response.ok) throw new Error("OSRM proxy request failed");
   const data = await response.json();
   return (
     data.routes?.[0]?.geometry?.coordinates?.map((coord) => [coord[1], coord[0]]) || []
